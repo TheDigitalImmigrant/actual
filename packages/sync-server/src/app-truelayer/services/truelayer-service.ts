@@ -121,8 +121,12 @@ type NormalizedAccount = {
 // --- Credentials ---
 
 function getCredentials(): { clientId: string; clientSecret: string } {
-  const clientId = secretsService.get(CLIENT_ID_KEY);
-  const clientSecret = secretsService.get(CLIENT_SECRET_KEY);
+  // Secrets store takes precedence (set via the UI); env vars are a fallback so
+  // self-hosters can configure credentials without the UI.
+  const clientId =
+    secretsService.get(CLIENT_ID_KEY) || process.env.TRUELAYER_CLIENT_ID;
+  const clientSecret =
+    secretsService.get(CLIENT_SECRET_KEY) || process.env.TRUELAYER_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     throw new TrueLayerError(
       'INVALID_INPUT',
@@ -381,7 +385,9 @@ export function normalizeCard(card: TrueLayerCard): NormalizedAccount {
 export const trueLayerService = {
   isConfigured(): boolean {
     return !!(
-      secretsService.get(CLIENT_ID_KEY) && secretsService.get(CLIENT_SECRET_KEY)
+      (secretsService.get(CLIENT_ID_KEY) || process.env.TRUELAYER_CLIENT_ID) &&
+      (secretsService.get(CLIENT_SECRET_KEY) ||
+        process.env.TRUELAYER_CLIENT_SECRET)
     );
   },
 
