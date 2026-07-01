@@ -19,6 +19,8 @@ export const SecretName = {
   akahu_appToken: 'akahu_appToken',
   enablebanking_applicationId: 'enablebanking_applicationId',
   enablebanking_secretKey: 'enablebanking_secretKey',
+  truelayer_clientId: 'truelayer_clientId',
+  truelayer_clientSecret: 'truelayer_clientSecret',
 };
 
 class SecretsDb {
