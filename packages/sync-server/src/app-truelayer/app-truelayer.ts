@@ -280,10 +280,18 @@ app.post(
     }
 
     const dateTo = new Date().toISOString().slice(0, 10);
-    const dateFrom =
+    const requestedFrom =
       typeof startDate === 'string'
         ? startDate.slice(0, 10)
         : new Date(startDate).toISOString().slice(0, 10);
+    // Open banking caps transaction history at 90 days, and some banks (e.g.
+    // Monzo) return an EMPTY set when `from` is at/over that boundary — which
+    // silently drops all booked history. Never request more than 89 days.
+    const MAX_HISTORY_DAYS = 89;
+    const earliest = new Date(Date.now() - MAX_HISTORY_DAYS * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const dateFrom = requestedFrom < earliest ? earliest : requestedFrom;
 
     // Auto-detect account vs card: TrueLayer serves them from different
     // resource paths, and the sync only knows the account id.
