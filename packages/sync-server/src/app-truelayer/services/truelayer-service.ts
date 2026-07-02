@@ -529,7 +529,9 @@ export const trueLayerService = {
     ]);
 
     const balances = balanceResults.map(normalizeBalance);
-    const startingBalance = balances.length ? balances[0].balanceAmount.amount : 0;
+    const currentBalance = balances.length
+      ? balances[0].balanceAmount.amount
+      : 0;
 
     const booked: NormalizedTransaction[] = [];
     const pending: NormalizedTransaction[] = [];
@@ -547,6 +549,16 @@ export const trueLayerService = {
       pending.push(n);
       all.push(n);
     }
+
+    // Reconstruct the balance *before* the imported transactions, so that
+    // (startingBalance + imported transactions) equals the current balance
+    // rather than double-counting it. Mirrors GoCardless calculateStartingBalance.
+    const importedSumMinor = all.reduce(
+      (total, tx) =>
+        total + Math.round(parseFloat(tx.transactionAmount.amount) * 100),
+      0,
+    );
+    const startingBalance = currentBalance - importedSumMinor;
 
     return { all, booked, pending, startingBalance, balances };
   },
