@@ -34,6 +34,7 @@ import type {
   SyncServerGoCardlessAccount,
   SyncServerPluggyAiAccount,
   SyncServerSimpleFinAccount,
+  SyncServerTrueLayerAccount,
   TransactionEntity,
 } from '#types/models';
 
@@ -59,6 +60,7 @@ export type AccountHandlers = {
   'pluggyai-accounts-link': typeof linkPluggyAiAccount;
   'akahu-accounts-link': typeof linkAkahuAccount;
   'enablebanking-accounts-link': typeof linkEnableBankingAccount;
+  'truelayer-accounts-link': typeof linkTrueLayerAccount;
   'account-create': typeof createAccount;
   'account-close': typeof closeAccount;
   'account-reopen': typeof reopenAccount;
@@ -78,6 +80,12 @@ export type AccountHandlers = {
   'enablebanking-poll-auth': typeof enableBankingPollAuth;
   'enablebanking-poll-auth-stop': typeof stopEnableBankingPollAuth;
   'enablebanking-configure': typeof enableBankingConfigure;
+  'truelayer-status': typeof trueLayerStatus;
+  'truelayer-get-banks': typeof trueLayerGetBanks;
+  'truelayer-start-auth': typeof trueLayerStartAuth;
+  'truelayer-complete-auth': typeof trueLayerCompleteAuth;
+  'truelayer-poll-auth': typeof trueLayerPollAuth;
+  'truelayer-poll-auth-stop': typeof stopTrueLayerPollAuth;
   'simplefin-accounts': typeof simpleFinAccounts;
   'pluggyai-accounts': typeof pluggyAiAccounts;
   'akahu-accounts': typeof akahuAccounts;
@@ -521,6 +529,90 @@ async function linkEnableBankingAccount({
 
   if (id == null) {
     throw new Error('id was not assigned in linkEnableBankingAccount');
+  }
+
+  const syncRes = await bankSync.syncAccount(
+    undefined,
+    undefined,
+    id,
+    externalAccount.account_id,
+    bank.bank_id,
+    startingDate,
+    startingBalance,
+  );
+
+  await handleSyncResponse(syncRes, id);
+
+  connection.send('sync-event', {
+    type: 'success',
+    tables: ['transactions', 'accounts'],
+  });
+
+  return 'ok';
+}
+
+async function linkTrueLayerAccount({
+  externalAccount,
+  upgradingId,
+  offBudget = false,
+  startingDate,
+  startingBalance,
+}: LinkAccountBaseParams & {
+  externalAccount: SyncServerTrueLayerAccount;
+}) {
+  let id: string | undefined;
+
+  const institution = {
+    // Persist a null name when the provider doesn't report an institution, so
+    // the desktop-client can render a localized fallback instead of baking an
+    // English string into shared bank data.
+    name: externalAccount.institution ?? null,
+  };
+
+  // TrueLayer uses a connection-per-institution model, so we key the bank by
+  // the connection-level identifier (requisitionId). This way the bankId that
+  // flows to the /transactions route is the connectionId (GoCardless-style).
+  const bank = await link.findOrCreateBank(
+    institution,
+    externalAccount.requisitionId,
+  );
+
+  if (upgradingId) {
+    const accRow = await db.first<db.DbAccount>(
+      'SELECT * FROM accounts WHERE id = ?',
+      [upgradingId],
+    );
+
+    if (!accRow) {
+      throw new Error(`Account with ID ${upgradingId} not found.`);
+    }
+
+    id = accRow.id;
+    await db.update('accounts', {
+      id,
+      account_id: externalAccount.account_id,
+      bank: bank.id,
+      account_sync_source: 'trueLayer',
+    });
+  } else {
+    id = uuidv4();
+    await db.insertWithUUID('accounts', {
+      id,
+      account_id: externalAccount.account_id,
+      name: externalAccount.name,
+      official_name: externalAccount.name,
+      bank: bank.id,
+      offbudget: offBudget ? 1 : 0,
+      account_sync_source: 'trueLayer',
+    });
+    await db.insertPayee({
+      name: '',
+      transfer_acct: id,
+    });
+  }
+
+  if (id == null) {
+    throw new Error('id was not assigned in linkTrueLayerAccount');
   }
 
   const syncRes = await bankSync.syncAccount(
@@ -1194,6 +1286,149 @@ async function enableBankingConfigure(config: {
   });
 }
 
+async function trueLayerStatus() {
+  const userToken = await asyncStorage.getItem('user-token');
+
+  if (!userToken) {
+    return { error: 'unauthorized' };
+  }
+
+  const serverConfig = getServer();
+  if (!serverConfig) {
+    throw new Error('Failed to get server config.');
+  }
+
+  return post(
+    serverConfig.TRUELAYER_SERVER + '/status',
+    {},
+    {
+      'X-ACTUAL-TOKEN': userToken,
+    },
+  );
+}
+
+async function trueLayerGetBanks(country: string) {
+  const userToken = await asyncStorage.getItem('user-token');
+
+  if (!userToken) {
+    return { error: 'unauthorized' };
+  }
+
+  const serverConfig = getServer();
+  if (!serverConfig) {
+    throw new Error('Failed to get server config.');
+  }
+
+  return post(
+    serverConfig.TRUELAYER_SERVER + '/get-banks',
+    { country },
+    {
+      'X-ACTUAL-TOKEN': userToken,
+    },
+  );
+}
+
+async function trueLayerStartAuth({
+  providerId,
+  redirectUrl,
+}: {
+  providerId: string;
+  redirectUrl: string;
+}) {
+  const userToken = await asyncStorage.getItem('user-token');
+
+  if (!userToken) {
+    return { error: 'unauthorized' };
+  }
+
+  const serverConfig = getServer();
+  if (!serverConfig) {
+    throw new Error('Failed to get server config.');
+  }
+
+  return post(
+    serverConfig.TRUELAYER_SERVER + '/create-web-token',
+    { providerId, redirectUri: redirectUrl },
+    {
+      'X-ACTUAL-TOKEN': userToken,
+    },
+  );
+}
+
+async function trueLayerCompleteAuth({
+  code,
+  state,
+}: {
+  code: string;
+  state: string;
+}) {
+  if (!state) {
+    return { error: 'missing-state' };
+  }
+
+  const userToken = await asyncStorage.getItem('user-token');
+
+  if (!userToken) {
+    return { error: 'unauthorized' };
+  }
+
+  const serverConfig = getServer();
+  if (!serverConfig) {
+    throw new Error('Failed to get server config.');
+  }
+
+  return post(
+    serverConfig.TRUELAYER_SERVER + '/complete-auth',
+    { code, state },
+    {
+      'X-ACTUAL-TOKEN': userToken,
+    },
+  );
+}
+
+const trueLayerPollControllers = new Map<string, AbortController>();
+
+async function trueLayerPollAuth({ state }: { state: string }) {
+  const userToken = await asyncStorage.getItem('user-token');
+
+  if (!userToken) {
+    return { error: 'unauthorized' };
+  }
+
+  const serverConfig = getServer();
+  if (!serverConfig) {
+    throw new Error('Failed to get server config.');
+  }
+
+  const controller = new AbortController();
+  trueLayerPollControllers.set(state, controller);
+
+  try {
+    return await post(
+      serverConfig.TRUELAYER_SERVER + '/get-accounts',
+      { state },
+      {
+        'X-ACTUAL-TOKEN': userToken,
+      },
+      310000, // slightly longer than server's 5-minute poll timeout
+      controller.signal,
+    );
+  } finally {
+    if (trueLayerPollControllers.get(state) === controller) {
+      trueLayerPollControllers.delete(state);
+    }
+  }
+}
+
+async function stopTrueLayerPollAuth({ state }: { state: string }) {
+  const controller = trueLayerPollControllers.get(state);
+  if (controller) {
+    controller.abort();
+    trueLayerPollControllers.delete(state);
+  }
+  return 'ok';
+}
+
 async function getGoCardlessBanks(country: string) {
   const userToken = await asyncStorage.getItem('user-token');
 
@@ -1740,6 +1975,7 @@ app.method('simplefin-accounts-link', linkSimpleFinAccount);
 app.method('pluggyai-accounts-link', linkPluggyAiAccount);
 app.method('akahu-accounts-link', linkAkahuAccount);
 app.method('enablebanking-accounts-link', linkEnableBankingAccount);
+app.method('truelayer-accounts-link', linkTrueLayerAccount);
 app.method('account-create', mutator(undoable(createAccount)));
 app.method('account-close', mutator(closeAccount));
 app.method('account-reopen', mutator(undoable(reopenAccount)));
@@ -1759,6 +1995,12 @@ app.method('enablebanking-complete-auth', enableBankingCompleteAuth);
 app.method('enablebanking-poll-auth', enableBankingPollAuth);
 app.method('enablebanking-poll-auth-stop', stopEnableBankingPollAuth);
 app.method('enablebanking-configure', enableBankingConfigure);
+app.method('truelayer-status', trueLayerStatus);
+app.method('truelayer-get-banks', trueLayerGetBanks);
+app.method('truelayer-start-auth', trueLayerStartAuth);
+app.method('truelayer-complete-auth', trueLayerCompleteAuth);
+app.method('truelayer-poll-auth', trueLayerPollAuth);
+app.method('truelayer-poll-auth-stop', stopTrueLayerPollAuth);
 app.method('simplefin-accounts', simpleFinAccounts);
 app.method('pluggyai-accounts', pluggyAiAccounts);
 app.method('akahu-accounts', akahuAccounts);

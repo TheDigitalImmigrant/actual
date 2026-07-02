@@ -111,8 +111,10 @@ type NormalizedBalance = {
 type NormalizedAccount = {
   account_id: string;
   name: string;
+  official_name: string;
   institution: string;
   currency: string;
+  balance: number;
   type: 'account' | 'card';
   iban?: string;
   mask?: string;
@@ -355,26 +357,32 @@ export function normalizeBalance(bal: TrueLayerBalance): NormalizedBalance {
 }
 
 export function normalizeAccount(acc: TrueLayerAccount): NormalizedAccount {
+  const name = acc.display_name || acc.account_number?.iban || acc.account_id;
   return {
     account_id: acc.account_id,
-    name: acc.display_name || acc.account_number?.iban || acc.account_id,
+    name,
+    official_name: name,
     institution: acc.provider?.display_name || 'Unknown',
     currency: acc.currency,
+    balance: 0,
     type: 'account',
     iban: acc.account_number?.iban,
   };
 }
 
 export function normalizeCard(card: TrueLayerCard): NormalizedAccount {
+  const name =
+    card.display_name ||
+    (card.partial_card_number
+      ? `${card.card_network || 'Card'} ••${card.partial_card_number}`
+      : card.account_id);
   return {
     account_id: card.account_id,
-    name:
-      card.display_name ||
-      (card.partial_card_number
-        ? `${card.card_network || 'Card'} ••${card.partial_card_number}`
-        : card.account_id),
+    name,
+    official_name: name,
     institution: card.provider?.display_name || 'Unknown',
     currency: card.currency,
+    balance: 0,
     type: 'card',
     mask: card.partial_card_number,
   };
@@ -461,7 +469,31 @@ export const trueLayerService = {
         return [] as TrueLayerCard[];
       }),
     ]);
-    return [...accounts.map(normalizeAccount), ...cards.map(normalizeCard)];
+
+    const normalized = [
+      ...accounts.map(a => ({ acc: normalizeAccount(a), base: '/data/v1/accounts' })),
+      ...cards.map(c => ({ acc: normalizeCard(c), base: '/data/v1/cards' })),
+    ];
+
+    // Enrich each account with its current balance (integer minor units) so the
+    // link modal can show it. Best-effort — leave 0 if the balance call fails.
+    await Promise.all(
+      normalized.map(async ({ acc, base }) => {
+        try {
+          const balances = await requestResults<TrueLayerBalance>(
+            `${base}/${acc.account_id}/balance`,
+            accessToken,
+          );
+          if (balances.length) {
+            acc.balance = Math.round(balances[0].current * 100);
+          }
+        } catch {
+          // keep balance at 0
+        }
+      }),
+    );
+
+    return normalized.map(x => x.acc);
   },
 
   // Fetches balance + booked/pending transactions for one account or card.
