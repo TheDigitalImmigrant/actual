@@ -13,11 +13,6 @@ export function TrueLayerCallback() {
   const [code] = useUrlParam('code');
   const [stateParam] = useUrlParam('state');
   const [errorParam] = useUrlParam('error');
-  const storedState = localStorage.getItem('truelayer_auth_state');
-  const stateValid =
-    typeof stateParam === 'string' &&
-    typeof storedState === 'string' &&
-    stateParam === storedState;
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>(
     'loading',
   );
@@ -39,19 +34,16 @@ export function TrueLayerCallback() {
         return;
       }
 
-      if (!code) {
+      if (!code || !stateParam) {
         setStatus('error');
         setErrorMessage(t('Missing authorization parameters.'));
         return;
       }
 
-      if (!stateValid) {
-        localStorage.removeItem('truelayer_auth_state');
-        setStatus('error');
-        setErrorMessage(t('Authorization state mismatch. Please try again.'));
-        return;
-      }
-
+      // The server validates `state` against its pending-links map (and
+      // create-web-token is behind the user's token), so it is the authority
+      // here. We don't gate on a localStorage match because mobile browsers
+      // (e.g. Brave) isolate storage between the popup tab and the opener.
       try {
         const result = await send('truelayer-complete-auth', {
           code,
@@ -69,7 +61,9 @@ export function TrueLayerCallback() {
         setStatus('success');
         localStorage.removeItem('truelayer_auth_state');
 
-        // Auto-close after a short delay
+        // Best-effort auto-close; mobile browsers usually block window.close()
+        // for tabs the script didn't open, so the success message tells the
+        // user to return to Actual (where the account picker is waiting).
         setTimeout(() => {
           window.close();
         }, 1500);
@@ -80,7 +74,7 @@ export function TrueLayerCallback() {
     }
 
     void handleCallback();
-  }, [code, stateParam, stateValid, errorParam, t]);
+  }, [code, stateParam, errorParam, t]);
 
   return (
     <View
@@ -100,7 +94,8 @@ export function TrueLayerCallback() {
       {status === 'success' && (
         <Paragraph>
           <Trans>
-            Authorization successful! This window will close automatically.
+            Authorization successful! You can close this tab and return to
+            Actual to choose which accounts to link.
           </Trans>
         </Paragraph>
       )}
