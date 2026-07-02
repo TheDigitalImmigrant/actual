@@ -485,7 +485,10 @@ export const trueLayerService = {
             accessToken,
           );
           if (balances.length) {
-            acc.balance = Math.round(balances[0].current * 100);
+            const raw = Math.round(balances[0].current * 100);
+            // Credit cards are liabilities in Actual: TrueLayer reports the
+            // amount owed as a positive number, so negate it.
+            acc.balance = acc.type === 'card' ? -raw : raw;
           }
         } catch {
           // keep balance at 0
@@ -528,7 +531,17 @@ export const trueLayerService = {
       ).catch(() => [] as TrueLayerTransaction[]),
     ]);
 
-    const balances = balanceResults.map(normalizeBalance);
+    // Credit cards are liabilities in Actual, but TrueLayer reports the owed
+    // amount as positive — negate so the account resolves to a negative balance.
+    const isCard = kind === 'card';
+    const balances = balanceResults.map(normalizeBalance).map(b =>
+      isCard
+        ? {
+            ...b,
+            balanceAmount: { ...b.balanceAmount, amount: -b.balanceAmount.amount },
+          }
+        : b,
+    );
     const currentBalance = balances.length
       ? balances[0].balanceAmount.amount
       : 0;
