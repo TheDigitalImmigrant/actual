@@ -17,8 +17,8 @@ import * as openidApp from './app-openid';
 import * as pluggai from './app-pluggyai/app-pluggyai';
 import * as secretApp from './app-secrets';
 import * as simpleFinApp from './app-simplefin/app-simplefin';
-import * as trueLayerApp from './app-truelayer/app-truelayer';
 import * as syncApp from './app-sync';
+import * as trueLayerApp from './app-truelayer/app-truelayer';
 import { config } from './load-config';
 
 const app = express();

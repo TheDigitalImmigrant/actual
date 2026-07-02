@@ -95,8 +95,8 @@ export function TrueLayerInitialiseModal({
             <Text>
               <Trans>
                 In order to enable bank sync via TrueLayer (for UK and EU banks)
-                you will need to create application credentials. This can be done
-                by creating an account at{' '}
+                you will need to create application credentials. This can be
+                done by creating an account at{' '}
                 <Link
                   variant="external"
                   to="https://console.truelayer.com/"

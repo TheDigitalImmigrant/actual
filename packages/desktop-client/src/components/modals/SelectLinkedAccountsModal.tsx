@@ -334,9 +334,7 @@ export function SelectLinkedAccountsModal({
             startingDate,
             startingBalance,
           });
-        } else if (
-          propsWithSortedExternalAccounts.syncSource === 'trueLayer'
-        ) {
+        } else if (propsWithSortedExternalAccounts.syncSource === 'trueLayer') {
           linkAccountTrueLayer.mutate({
             externalAccount:
               propsWithSortedExternalAccounts.externalAccounts[

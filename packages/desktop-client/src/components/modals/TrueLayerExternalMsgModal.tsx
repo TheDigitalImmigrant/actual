@@ -151,8 +151,10 @@ export function TrueLayerExternalMsgModal({
     isLoading: isBankOptionsLoading,
     isError: isBankOptionError,
   } = useAvailableBanks(country, isTrueLayerSetupComplete);
-  const { configuredTrueLayer: isConfigured, isLoading: isConfigurationLoading } =
-    useTrueLayerStatus();
+  const {
+    configuredTrueLayer: isConfigured,
+    isLoading: isConfigurationLoading,
+  } = useTrueLayerStatus();
 
   const isJumpingRef = useRef(false);
   const stateRef = useRef<string | null>(null);

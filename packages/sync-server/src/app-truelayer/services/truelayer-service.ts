@@ -1,8 +1,10 @@
 import createDebug from 'debug';
 
+import {
+  handleTrueLayerError,
+  TrueLayerError,
+} from '#app-truelayer/utils/errors';
 import { secretsService } from '#services/secrets-service';
-
-import { handleTrueLayerError, TrueLayerError } from '../utils/errors';
 
 const debug = createDebug('actual:truelayer:service');
 
@@ -128,7 +130,8 @@ function getCredentials(): { clientId: string; clientSecret: string } {
   const clientId =
     secretsService.get(CLIENT_ID_KEY) || process.env.TRUELAYER_CLIENT_ID;
   const clientSecret =
-    secretsService.get(CLIENT_SECRET_KEY) || process.env.TRUELAYER_CLIENT_SECRET;
+    secretsService.get(CLIENT_SECRET_KEY) ||
+    process.env.TRUELAYER_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     throw new TrueLayerError(
       'INVALID_INPUT',
@@ -257,8 +260,19 @@ function loadConnection(connectionId: string): StoredConnection {
       'No stored TrueLayer connection; re-link required',
     );
   }
-  // eslint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- parsed from our own JSON
-  return JSON.parse(raw) as StoredConnection;
+  try {
+    // eslint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- parsed from our own JSON
+    const parsed = JSON.parse(raw) as StoredConnection;
+    if (!parsed.access_token) throw new Error('missing access_token');
+    return parsed;
+  } catch {
+    // A corrupt bundle is unrecoverable server-side — treat as needs re-link.
+    throw new TrueLayerError(
+      'INVALID_ACCESS_TOKEN',
+      'INVALID_ACCESS_TOKEN',
+      'Stored TrueLayer connection is corrupt; re-link required',
+    );
+  }
 }
 
 // De-dupes concurrent refreshes for the same connection: TrueLayer rotates the
@@ -321,7 +335,8 @@ export function normalizeTransaction(
   booked: boolean,
   providerId?: string,
 ): NormalizedTransaction {
-  const transactionId = tx.transaction_id || tx.meta?.provider_transaction_id || '';
+  const transactionId =
+    tx.transaction_id || tx.meta?.provider_transaction_id || '';
   const date = (tx.timestamp || '').slice(0, 10);
 
   // TrueLayer returns a signed amount, but re-derive the sign from
@@ -442,7 +457,21 @@ export const trueLayerService = {
       scope: SCOPES,
       response_type: 'code',
     });
-    const res = await fetch(`${AUTH_URL}/api/providers/?${params.toString()}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(`${AUTH_URL}/api/providers/?${params.toString()}`, {
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new TrueLayerError('TIMED_OUT', 'TIMED_OUT', 'Request timed out');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => 'unknown');
       throw handleTrueLayerError(res.status, body);
@@ -473,18 +502,33 @@ export const trueLayerService = {
     secretsService.set(connectionKey(connectionId), '');
   },
 
-  async getAccountsAndCards(connectionId: string): Promise<NormalizedAccount[]> {
+  async getAccountsAndCards(
+    connectionId: string,
+  ): Promise<NormalizedAccount[]> {
     const accessToken = await getValidAccessToken(connectionId);
     const [accounts, cards] = await Promise.all([
       requestResults<TrueLayerAccount>('/data/v1/accounts', accessToken),
-      requestResults<TrueLayerCard>('/data/v1/cards', accessToken).catch(() => {
-        // Not every connection grants card access; treat as no cards.
-        return [] as TrueLayerCard[];
-      }),
+      requestResults<TrueLayerCard>('/data/v1/cards', accessToken).catch(
+        (error: unknown) => {
+          // Not every connection grants card access; treat that as no cards.
+          // Auth errors mean the whole connection is dead — let them surface
+          // so the user is prompted to re-link instead of silently losing data.
+          if (
+            error instanceof TrueLayerError &&
+            error.error_code === 'INVALID_ACCESS_TOKEN'
+          ) {
+            throw error;
+          }
+          return [] as TrueLayerCard[];
+        },
+      ),
     ]);
 
     const normalized = [
-      ...accounts.map(a => ({ acc: normalizeAccount(a), base: '/data/v1/accounts' })),
+      ...accounts.map(a => ({
+        acc: normalizeAccount(a),
+        base: '/data/v1/accounts',
+      })),
       ...cards.map(c => ({ acc: normalizeCard(c), base: '/data/v1/cards' })),
     ];
 
@@ -533,7 +577,10 @@ export const trueLayerService = {
     const range = `from=${encodeURIComponent(dateFrom)}&to=${encodeURIComponent(dateTo)}`;
 
     const [balanceResults, bookedRaw, pendingRaw] = await Promise.all([
-      requestResults<TrueLayerBalance>(`${base}/${accountId}/balance`, accessToken),
+      requestResults<TrueLayerBalance>(
+        `${base}/${accountId}/balance`,
+        accessToken,
+      ),
       requestResults<TrueLayerTransaction>(
         `${base}/${accountId}/transactions?${range}`,
         accessToken,
@@ -541,7 +588,17 @@ export const trueLayerService = {
       requestResults<TrueLayerTransaction>(
         `${base}/${accountId}/transactions/pending`,
         accessToken,
-      ).catch(() => [] as TrueLayerTransaction[]),
+      ).catch((error: unknown) => {
+        // Some banks don't support the pending endpoint; treat as none.
+        // Auth errors must surface so the user gets the re-link prompt.
+        if (
+          error instanceof TrueLayerError &&
+          error.error_code === 'INVALID_ACCESS_TOKEN'
+        ) {
+          throw error;
+        }
+        return [] as TrueLayerTransaction[];
+      }),
     ]);
 
     // Credit cards are liabilities in Actual, but TrueLayer reports the owed
@@ -551,7 +608,10 @@ export const trueLayerService = {
       isCard
         ? {
             ...b,
-            balanceAmount: { ...b.balanceAmount, amount: -b.balanceAmount.amount },
+            balanceAmount: {
+              ...b.balanceAmount,
+              amount: -b.balanceAmount.amount,
+            },
           }
         : b,
     );

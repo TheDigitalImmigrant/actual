@@ -9,8 +9,8 @@ import {
   validateSessionMiddleware,
 } from '#util/middlewares';
 
-import { TrueLayerError } from './utils/errors';
 import { trueLayerService } from './services/truelayer-service';
+import { TrueLayerError } from './utils/errors';
 
 const debug = createDebug('actual:truelayer:app');
 
@@ -56,6 +56,10 @@ const PENDING_LINK_TTL_MS = 15 * 60 * 1000;
 async function finalizeAuth(code: string, state: string): Promise<unknown> {
   const pending = pendingLinks.get(state);
   if (!pending) {
+    // Idempotency: a retried complete-auth (double redirect, flaky mobile
+    // network) for an already-finalized state returns the cached result.
+    const cached = completedLinks.get(state);
+    if (cached) return cached;
     throw new TrueLayerError(
       'INVALID_INPUT',
       'UNKNOWN_STATE',
@@ -84,7 +88,9 @@ async function finalizeAuth(code: string, state: string): Promise<unknown> {
     };
   } catch (error) {
     debug('finalizeAuth error: %s', error);
-    result = { error: error instanceof Error ? error.message : 'unknown error' };
+    result = {
+      error: error instanceof Error ? error.message : 'unknown error',
+    };
   }
 
   pendingLinks.delete(state);
@@ -180,7 +186,10 @@ app.post(
     pendingLinks.set(state, { connectionId, redirectUri });
     setTimeout(() => pendingLinks.delete(state), PENDING_LINK_TTL_MS);
     const link = trueLayerService.buildAuthUrl(providerId, redirectUri, state);
-    res.send({ status: 'ok', data: { link, state, requisitionId: connectionId } });
+    res.send({
+      status: 'ok',
+      data: { link, state, requisitionId: connectionId },
+    });
   }),
 );
 
@@ -307,7 +316,10 @@ app.post(
           providerId,
         );
       } catch (error) {
-        if (error instanceof TrueLayerError && error.error_code === 'NOT_FOUND') {
+        if (
+          error instanceof TrueLayerError &&
+          error.error_code === 'NOT_FOUND'
+        ) {
           result = await trueLayerService.getTransactions(
             requisitionId,
             accountId,
