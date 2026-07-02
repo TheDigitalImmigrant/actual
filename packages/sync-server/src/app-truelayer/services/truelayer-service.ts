@@ -46,7 +46,7 @@ type TokenResponse = {
 export type TrueLayerProvider = {
   provider_id: string;
   display_name: string;
-  logo_uri?: string;
+  logo_url?: string;
   country?: string;
 };
 
@@ -412,8 +412,9 @@ export const trueLayerService = {
   },
 
   // Lists providers available to this client (for the bank picker), filtered to
-  // the given country (defaults to GB).
-  async getProviders(country = 'GB'): Promise<TrueLayerProvider[]> {
+  // the given country. TrueLayer uses lowercase codes and "uk" (not "gb") for
+  // the United Kingdom.
+  async getProviders(country = 'uk'): Promise<TrueLayerProvider[]> {
     const { clientId } = getCredentials();
     const params = new URLSearchParams({
       client_id: clientId,
@@ -427,8 +428,9 @@ export const trueLayerService = {
     }
     // eslint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- providers metadata
     const providers = (await res.json()) as TrueLayerProvider[];
+    const wanted = country.toLowerCase();
     return providers.filter(
-      p => !country || !p.country || p.country.toUpperCase() === country,
+      p => !wanted || !p.country || p.country.toLowerCase() === wanted,
     );
   },
 

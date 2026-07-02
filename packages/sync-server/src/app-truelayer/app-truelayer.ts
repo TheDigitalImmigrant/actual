@@ -4,15 +4,29 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
 import { handleError } from '#app-gocardless/util/handle-error';
-import { validateSessionMiddleware } from '#util/middlewares';
+import {
+  requestLoggerMiddleware,
+  validateSessionMiddleware,
+} from '#util/middlewares';
 
 import { TrueLayerError } from './utils/errors';
 import { trueLayerService } from './services/truelayer-service';
 
 const debug = createDebug('actual:truelayer:app');
 
+// Escape untrusted text before interpolating into an HTML response (the OAuth
+// callback reflects query params, which are attacker-controllable).
+const escapeHtml = (s: string) =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 const app = express();
 export { app as handlers };
+app.use(requestLoggerMiddleware);
 app.use(express.json());
 
 // --- OAuth handoff coordination (process-local, mirrors Enable Banking) ---
@@ -31,15 +45,36 @@ app.get('/auth_callback', async (req: Request, res: Response) => {
   const state =
     typeof req.query.state === 'string' ? req.query.state : undefined;
 
+  // eslint-disable-next-line no-console -- diagnostic for live validation
+  console.log(
+    '[truelayer] auth_callback hit; query keys=%s hasCode=%s state=%s',
+    Object.keys(req.query).join(','),
+    !!code,
+    state,
+  );
+
   if (!code || !state) {
+    // TrueLayer may redirect with error/error_description instead of a code.
+    const errText =
+      typeof req.query.error_description === 'string'
+        ? req.query.error_description
+        : typeof req.query.error === 'string'
+          ? req.query.error
+          : 'missing code or state';
+    // eslint-disable-next-line no-console -- diagnostic for live validation
+    console.log('[truelayer] auth_callback missing code/state: %s', errText);
     res
       .status(400)
-      .send('<html><body><p>Authorization failed: missing code or state.</p></body></html>');
+      .send(
+        `<html><body><p>Authorization failed: ${escapeHtml(errText)}</p></body></html>`,
+      );
     return;
   }
 
   const pending = pendingLinks.get(state);
   if (!pending) {
+    // eslint-disable-next-line no-console -- diagnostic for live validation
+    console.log('[truelayer] auth_callback unknown state: %s', state);
     res
       .status(400)
       .send('<html><body><p>Authorization failed: unknown or expired state.</p></body></html>');
@@ -54,6 +89,12 @@ app.get('/auth_callback', async (req: Request, res: Response) => {
     );
     const accounts = await trueLayerService.getAccountsAndCards(
       pending.connectionId,
+    );
+    // eslint-disable-next-line no-console -- diagnostic for live validation
+    console.log(
+      '[truelayer] connection established: %s accounts=%d',
+      pending.connectionId,
+      accounts.length,
     );
     // Tag each account with its connection so the client stores it as the
     // account's requisitionId, exactly like GoCardless.
@@ -71,6 +112,8 @@ app.get('/auth_callback', async (req: Request, res: Response) => {
     );
   } catch (error) {
     debug('auth_callback error: %s', error);
+    // eslint-disable-next-line no-console -- diagnostic for live validation
+    console.log('[truelayer] auth_callback error:', error);
     completedLinks.set(state, {
       error: error instanceof Error ? error.message : 'unknown error',
     });
@@ -102,7 +145,7 @@ app.post(
   handleError(async (req: Request, res: Response) => {
     const { country } = req.body || {};
     const providers = await trueLayerService.getProviders(
-      typeof country === 'string' ? country : 'GB',
+      typeof country === 'string' ? country : 'uk',
     );
     res.send({ status: 'ok', data: providers });
   }),
