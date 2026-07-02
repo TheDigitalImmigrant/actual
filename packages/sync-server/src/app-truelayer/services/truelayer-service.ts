@@ -261,6 +261,11 @@ function loadConnection(connectionId: string): StoredConnection {
   return JSON.parse(raw) as StoredConnection;
 }
 
+// De-dupes concurrent refreshes for the same connection: TrueLayer rotates the
+// refresh token, so two parallel refreshes with the same token would make one
+// fail with invalid_grant and spuriously force a re-link.
+const inflightRefresh = new Map<string, Promise<string>>();
+
 // Returns a valid access token for a connection, transparently refreshing (and
 // persisting the possibly-rotated refresh token) when the current one is stale.
 async function getValidAccessToken(connectionId: string): Promise<string> {
@@ -279,16 +284,24 @@ async function getValidAccessToken(connectionId: string): Promise<string> {
     );
   }
 
-  const refreshed = await tokenRequest({
-    grant_type: 'refresh_token',
-    refresh_token: conn.refresh_token,
-  });
-  // TrueLayer may or may not rotate the refresh token; keep the old one if not.
-  if (!refreshed.refresh_token) {
-    refreshed.refresh_token = conn.refresh_token;
-  }
-  saveConnection(connectionId, refreshed);
-  return refreshed.access_token;
+  const existing = inflightRefresh.get(connectionId);
+  if (existing) return existing;
+
+  const refreshPromise = (async () => {
+    const refreshed = await tokenRequest({
+      grant_type: 'refresh_token',
+      refresh_token: conn.refresh_token,
+    });
+    // TrueLayer may or may not rotate the refresh token; keep the old one if not.
+    if (!refreshed.refresh_token) {
+      refreshed.refresh_token = conn.refresh_token;
+    }
+    saveConnection(connectionId, refreshed);
+    return refreshed.access_token;
+  })().finally(() => inflightRefresh.delete(connectionId));
+
+  inflightRefresh.set(connectionId, refreshPromise);
+  return refreshPromise;
 }
 
 // --- Normalization (single path; per-bank overrides slot in via PER_BANK_OVERRIDES) ---
@@ -563,10 +576,19 @@ export const trueLayerService = {
       all.push(n);
     }
 
-    // Reconstruct the balance *before* the imported transactions, so that
-    // (startingBalance + imported transactions) equals the current balance
-    // rather than double-counting it. Mirrors GoCardless calculateStartingBalance.
-    const importedSumMinor = all.reduce(
+    // The client dates the initial starting-balance entry from the *last*
+    // element of `all`, so it must be sorted newest-first (mirrors GoCardless).
+    const byDateDesc = (a: NormalizedTransaction, b: NormalizedTransaction) =>
+      b.date.localeCompare(a.date);
+    booked.sort(byDateDesc);
+    pending.sort(byDateDesc);
+    all.sort(byDateDesc);
+
+    // Reconstruct the pre-import *cleared* balance. TrueLayer's `current`
+    // excludes pending transactions, and imported booked transactions are
+    // cleared, so subtract only `booked` (mirrors GoCardless
+    // calculateStartingBalance). Pending stay uncleared on top.
+    const importedSumMinor = booked.reduce(
       (total, tx) =>
         total + Math.round(parseFloat(tx.transactionAmount.amount) * 100),
       0,

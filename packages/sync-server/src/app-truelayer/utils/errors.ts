@@ -48,20 +48,28 @@ export function handleTrueLayerError(
     errorCode === 'invalid_token' ||
     errorCode === 'access_denied'
   ) {
-    return new TrueLayerError(message, 'INVALID_ACCESS_TOKEN', message);
+    return new TrueLayerError(
+      'INVALID_ACCESS_TOKEN',
+      'INVALID_ACCESS_TOKEN',
+      message,
+    );
   }
 
   if (statusCode === 429 || errorCode === 'rate_limit_exceeded') {
-    return new TrueLayerError(message, 'RATE_LIMIT_EXCEEDED', message);
+    return new TrueLayerError(
+      'RATE_LIMIT_EXCEEDED',
+      'RATE_LIMIT_EXCEEDED',
+      message,
+    );
   }
 
   if (statusCode === 404) {
-    return new TrueLayerError(message, 'NOT_FOUND', message);
+    return new TrueLayerError('NOT_FOUND', 'NOT_FOUND', message);
   }
 
   if (statusCode >= 400 && statusCode < 500) {
-    return new TrueLayerError(message, 'INVALID_INPUT', message);
+    return new TrueLayerError('INVALID_INPUT', 'INVALID_INPUT', message);
   }
 
-  return new TrueLayerError(message, 'INTERNAL_ERROR', message);
+  return new TrueLayerError('INTERNAL_ERROR', 'INTERNAL_ERROR', message);
 }

@@ -46,6 +46,9 @@ const completedLinks = new Map<string, unknown>();
 const pendingPolls = new Map<string, PendingPoll>();
 const COMPLETED_TTL_MS = 5 * 60 * 1000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+// Abandoned link attempts (tab closed, consent denied, etc.) never reach
+// finalizeAuth, so expire their pendingLinks entry to avoid an unbounded leak.
+const PENDING_LINK_TTL_MS = 15 * 60 * 1000;
 
 // Exchange the code, fetch accounts+cards, cache the result under `state`, and
 // wake any waiting poll. Shared by POST /complete-auth (primary, from the SPA
@@ -175,6 +178,7 @@ app.post(
     const state = uuidv4();
     const connectionId = uuidv4();
     pendingLinks.set(state, { connectionId, redirectUri });
+    setTimeout(() => pendingLinks.delete(state), PENDING_LINK_TTL_MS);
     const link = trueLayerService.buildAuthUrl(providerId, redirectUri, state);
     res.send({ status: 'ok', data: { link, state, requisitionId: connectionId } });
   }),

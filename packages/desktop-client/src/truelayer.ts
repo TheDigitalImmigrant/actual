@@ -84,6 +84,12 @@ function _authorize(
 
               const pollData = pollResp.data;
 
+              // The server long-poll resolves with { pending: true } when it
+              // times out before the auth completes (user took too long).
+              if (pollData?.pending) {
+                return { error: 'timeout' as const };
+              }
+
               // The poll response body itself may carry an error (e.g. when
               // the bank callback failed before the poll started).
               if (pollData?.error) {
