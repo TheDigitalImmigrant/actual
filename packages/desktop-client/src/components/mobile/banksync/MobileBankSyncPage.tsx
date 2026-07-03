@@ -7,6 +7,8 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 import type { AccountEntity } from '@actual-app/core/types/models';
 
+import { BuiltInProviders } from '#components/banksync/BuiltInProviders';
+import { useBuiltInBankSyncProviders } from '#components/banksync/useBuiltInBankSyncProviders';
 import {
   getGroupedBankSyncEntries,
   getSyncSourceReadable,
@@ -27,6 +29,12 @@ export function MobileBankSyncPage() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { data: accounts = [] } = useAccounts();
+  const {
+    providers,
+    syncServerStatus,
+    showPermissionWarning,
+    providersNeedingConfiguration,
+  } = useBuiltInBankSyncProviders();
   const [filter, setFilter] = useState('');
   const syncSourceReadable = useMemo(() => getSyncSourceReadable(t), [t]);
 
@@ -116,6 +124,22 @@ export function MobileBankSyncPage() {
         />
       </View>
 
+      <View
+        style={{
+          padding: 16,
+          borderBottomWidth: 2,
+          borderBottomStyle: 'solid',
+          borderBottomColor: theme.tableBorder,
+        }}
+      >
+        <BuiltInProviders
+          providers={providers}
+          syncServerStatus={syncServerStatus}
+          showPermissionWarning={showPermissionWarning}
+          providersNeedingConfiguration={providersNeedingConfiguration}
+        />
+      </View>
+
       {openAccounts.length === 0 ? (
         <View
           style={{
@@ -134,7 +158,8 @@ export function MobileBankSyncPage() {
             }}
           >
             <Trans>
-              To use the bank syncing features, you must first add an account.
+              No accounts are linked yet. Connect a bank above and your
+              accounts will be created automatically.
             </Trans>
           </Text>
         </View>
