@@ -6,8 +6,10 @@ import {
   mappingsToString,
 } from '@actual-app/core/server/util/custom-sync-mapping';
 import type { Mappings } from '@actual-app/core/server/util/custom-sync-mapping';
+import { getDefaultImportPending } from '@actual-app/core/shared/bank-sync';
 import { q } from '@actual-app/core/shared/query';
 
+import { useAccounts } from '#hooks/useAccounts';
 import { useSyncedPref } from '#hooks/useSyncedPref';
 import { useTransactions } from '#hooks/useTransactions';
 
@@ -18,14 +20,19 @@ import type {
 } from './EditSyncAccount';
 
 export function useBankSyncAccountSettings(accountId: string) {
+  const { data: accounts = [] } = useAccounts();
+  const account = accounts.find(a => a.id === accountId);
+  const importPendingDefault = getDefaultImportPending(
+    account?.account_sync_source,
+  );
+
   const [savedMappings = mappingsToString(defaultMappings), setSavedMappings] =
     useSyncedPref(`custom-sync-mappings-${accountId}`);
   const [savedImportNotes = true, setSavedImportNotes] = useSyncedPref(
     `sync-import-notes-${accountId}`,
   );
-  const [savedImportPending = true, setSavedImportPending] = useSyncedPref(
-    `sync-import-pending-${accountId}`,
-  );
+  const [savedImportPending = importPendingDefault, setSavedImportPending] =
+    useSyncedPref(`sync-import-pending-${accountId}`);
   const [savedReimportDeleted = true, setSavedReimportDeleted] = useSyncedPref(
     `sync-reimport-deleted-${accountId}`,
   );
