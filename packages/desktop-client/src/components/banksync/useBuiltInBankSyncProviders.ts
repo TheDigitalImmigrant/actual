@@ -20,9 +20,11 @@ import { useGoCardlessStatus } from '#hooks/useGoCardlessStatus';
 import { usePluggyAiStatus } from '#hooks/usePluggyAiStatus';
 import { useSimpleFinStatus } from '#hooks/useSimpleFinStatus';
 import { useSyncServerStatus } from '#hooks/useSyncServerStatus';
+import { useTrueLayerStatus } from '#hooks/useTrueLayerStatus';
 import { pushModal } from '#modals/modalsSlice';
 import { addNotification } from '#notifications/notificationsSlice';
 import { useDispatch } from '#redux';
+import { authorizeBank as authorizeTrueLayer } from '#truelayer';
 
 import { BUILT_IN_BANK_SYNC_PROVIDERS } from './bankSyncUtils';
 
@@ -109,6 +111,9 @@ export function useBuiltInBankSyncProviders({
   >(null);
   const [isEnableBankingSetupComplete, setIsEnableBankingSetupComplete] =
     useState<boolean | null>(null);
+  const [isTrueLayerSetupComplete, setIsTrueLayerSetupComplete] = useState<
+    boolean | null
+  >(null);
   const [isAkahuSetupComplete, setIsAkahuSetupComplete] = useState<
     boolean | null
   >(null);
@@ -124,6 +129,8 @@ export function useBuiltInBankSyncProviders({
   const { configuredAkahu } = useAkahuStatus(akahuEnabled);
   const { configuredEnableBanking, isLoading: isEnableBankingLoading } =
     useEnableBankingStatus(enableBankingEnabled);
+  const { configuredTrueLayer, isLoading: isTrueLayerLoading } =
+    useTrueLayerStatus();
 
   useEffect(() => {
     setIsGoCardlessSetupComplete(configuredGoCardless);
@@ -140,6 +147,10 @@ export function useBuiltInBankSyncProviders({
   useEffect(() => {
     setIsEnableBankingSetupComplete(configuredEnableBanking);
   }, [configuredEnableBanking]);
+
+  useEffect(() => {
+    setIsTrueLayerSetupComplete(configuredTrueLayer);
+  }, [configuredTrueLayer]);
 
   useEffect(() => {
     setIsAkahuSetupComplete(configuredAkahu);
@@ -191,6 +202,19 @@ export function useBuiltInBankSyncProviders({
           name: 'enablebanking-init',
           options: {
             onSuccess: () => setIsEnableBankingSetupComplete(true),
+          },
+        },
+      }),
+    );
+  }, [dispatch]);
+
+  const onTrueLayerInit = useCallback(() => {
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'truelayer-init',
+          options: {
+            onSuccess: () => setIsTrueLayerSetupComplete(true),
           },
         },
       }),
@@ -323,6 +347,28 @@ export function useBuiltInBankSyncProviders({
     }
   }, [notifyResetFailure]);
 
+  const onTrueLayerReset = useCallback(async () => {
+    try {
+      await ensureSuccessResponse(
+        await send('secret-set', {
+          name: 'truelayer_clientId',
+          value: null,
+        }),
+        'Failed to clear TrueLayer client ID',
+      );
+      await ensureSuccessResponse(
+        await send('secret-set', {
+          name: 'truelayer_clientSecret',
+          value: null,
+        }),
+        'Failed to clear TrueLayer client secret',
+      );
+      setIsTrueLayerSetupComplete(false);
+    } catch (error) {
+      notifyResetFailure('TrueLayer', error);
+    }
+  }, [notifyResetFailure]);
+
   const onAkahuReset = useCallback(async () => {
     try {
       await ensureSuccessResponse(
@@ -442,6 +488,35 @@ export function useBuiltInBankSyncProviders({
     dispatch,
     isEnableBankingSetupComplete,
     onEnableBankingInit,
+    t,
+    upgradingAccountId,
+  ]);
+
+  const onConnectTrueLayer = useCallback(async () => {
+    if (!isTrueLayerSetupComplete) {
+      onTrueLayerInit();
+      return;
+    }
+
+    try {
+      await authorizeTrueLayer(dispatch, upgradingAccountId);
+    } catch (error) {
+      dispatch(
+        addNotification({
+          notification: {
+            type: 'error',
+            title: t('Error when trying to contact TrueLayer'),
+            message: error instanceof Error ? error.message : String(error),
+            timeout: 5000,
+          },
+        }),
+      );
+      onTrueLayerInit();
+    }
+  }, [
+    dispatch,
+    isTrueLayerSetupComplete,
+    onTrueLayerInit,
     t,
     upgradingAccountId,
   ]);
@@ -596,6 +671,7 @@ export function useBuiltInBankSyncProviders({
     goCardless: Boolean(isGoCardlessSetupComplete),
     simpleFin: Boolean(isSimpleFinSetupComplete),
     pluggyai: Boolean(isPluggyAiSetupComplete),
+    trueLayer: Boolean(isTrueLayerSetupComplete),
     enableBanking: Boolean(isEnableBankingSetupComplete),
     akahu: Boolean(isAkahuSetupComplete),
   } satisfies Record<BankSyncProviders, boolean>;
@@ -631,6 +707,22 @@ export function useBuiltInBankSyncProviders({
             onConfigure: onSimpleFinInit,
             onLink: onConnectSimpleFin,
             onReset: onSimpleFinReset,
+          };
+        }
+
+        if (providerId === 'trueLayer') {
+          return {
+            id: providerId,
+            displayName: 'TrueLayer',
+            description: t(
+              'Link a UK or European bank account via TrueLayer to automatically download transactions.',
+            ),
+            isConfigured: configuredProviders.trueLayer,
+            canConfigure: canConfigureProviders,
+            isLoading: isTrueLayerLoading,
+            onConfigure: onTrueLayerInit,
+            onLink: onConnectTrueLayer,
+            onReset: onTrueLayerReset,
           };
         }
 
@@ -687,10 +779,12 @@ export function useBuiltInBankSyncProviders({
     configuredProviders.goCardless,
     configuredProviders.pluggyai,
     configuredProviders.simpleFin,
+    configuredProviders.trueLayer,
     configuredProviders.akahu,
     enableBankingEnabled,
     akahuEnabled,
     isEnableBankingLoading,
+    isTrueLayerLoading,
     loadingSimpleFinAccounts,
     loadingAkahuAccounts,
     onConnectAkahu,
@@ -698,6 +792,7 @@ export function useBuiltInBankSyncProviders({
     onConnectGoCardless,
     onConnectPluggyAi,
     onConnectSimpleFin,
+    onConnectTrueLayer,
     onAkahuInit,
     onAkahuReset,
     onEnableBankingInit,
@@ -708,6 +803,8 @@ export function useBuiltInBankSyncProviders({
     onPluggyAiReset,
     onSimpleFinInit,
     onSimpleFinReset,
+    onTrueLayerInit,
+    onTrueLayerReset,
     t,
   ]);
 

@@ -41,6 +41,7 @@ import { Settings } from './settings';
 import { FloatableSidebar } from './sidebar';
 import { ManageTagsPage } from './tags/ManageTagsPage';
 import { Titlebar } from './Titlebar';
+import { TrueLayerCallback } from './TrueLayerCallback';
 
 function NarrowNotSupported({
   redirectTo = '/budget',
@@ -340,6 +341,11 @@ export function FinancesApp() {
                   <Route
                     path="/enablebanking/auth_callback"
                     element={<EnableBankingCallback />}
+                  />
+
+                  <Route
+                    path="/truelayer/auth_callback"
+                    element={<TrueLayerCallback />}
                   />
 
                   <Route
