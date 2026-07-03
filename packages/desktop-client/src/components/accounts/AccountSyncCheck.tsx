@@ -17,6 +17,7 @@ import { authorizeBank as authorizeGoCardless } from '#gocardless';
 import { useAccounts } from '#hooks/useAccounts';
 import { useFailedAccounts } from '#hooks/useFailedAccounts';
 import { useDispatch } from '#redux';
+import { authorizeBank as authorizeTrueLayer } from '#truelayer';
 
 function useErrorMessage() {
   const { t } = useTranslation();
@@ -106,9 +107,11 @@ export function AccountSyncCheck() {
 
       if (acc.account_id) {
         if (acc.account_sync_source === 'enableBanking') {
-          void authorizeEnableBanking(dispatch);
+          void authorizeEnableBanking(dispatch, acc.id);
         } else if (acc.account_sync_source === 'goCardless') {
-          void authorizeGoCardless(dispatch);
+          void authorizeGoCardless(dispatch, acc.id);
+        } else if (acc.account_sync_source === 'trueLayer') {
+          void authorizeTrueLayer(dispatch, acc.id);
         }
       }
     },

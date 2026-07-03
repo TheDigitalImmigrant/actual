@@ -45,9 +45,15 @@ export function useBankSyncAccountSettings(accountId: string) {
 
   const [transactionDirection, setTransactionDirection] =
     useState<TransactionDirection>('payment');
-  const [importPending, setImportPending] = useState(
-    String(savedImportPending) === 'true',
+  // The pref default depends on the async-loaded account (trueLayer accounts
+  // default to false), so derive the value and only hold the user's override
+  // in state — a useState initializer would lock in the wrong default when
+  // this page is cold-loaded before accounts resolve.
+  const [importPendingOverride, setImportPending] = useState<boolean | null>(
+    null,
   );
+  const importPending =
+    importPendingOverride ?? String(savedImportPending) === 'true';
   const [importNotes, setImportNotes] = useState(
     String(savedImportNotes) === 'true',
   );
