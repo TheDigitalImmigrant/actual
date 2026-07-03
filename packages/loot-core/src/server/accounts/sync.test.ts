@@ -633,6 +633,115 @@ describe('Account sync', () => {
       expect(transactions[0].amount).toBe(-1239);
     },
   );
+
+  async function prepareSyncedAccount(syncSource) {
+    const id = await db.insertAccount({
+      id: `${syncSource}-acct`,
+      account_id: `${syncSource}-ext-1`,
+      name: `${syncSource} account`,
+      account_sync_source: syncSource,
+    });
+    await db.insertPayee({
+      id: 'transfer-' + id,
+      name: '',
+      transfer_acct: id,
+    });
+    return id;
+  }
+
+  test('bank sync skips pending transactions by default for trueLayer accounts', async () => {
+    const acctId = await prepareSyncedAccount('trueLayer');
+
+    await reconcileTransactions(
+      acctId,
+      [
+        {
+          transactionId: 'tl-booked-1',
+          date: '2020-01-02',
+          payeeName: 'Bakkerij',
+          // Bank-sync amounts are decimal currency units; the import path
+          // runs amountToInteger (×100) to get cents.
+          amount: -41.33,
+          booked: true,
+        },
+        {
+          transactionId: 'tl-pending-1',
+          date: '2020-01-03',
+          payeeName: 'Kroger',
+          amount: -50.0,
+          booked: false,
+        },
+      ],
+      true, // isBankSyncAccount
+      false, // strictIdChecking
+    );
+
+    const transactions = await getAllTransactions();
+    expect(transactions.length).toBe(1);
+    expect(transactions[0].amount).toBe(-4133);
+    expect(transactions[0].cleared).toBe(1);
+  });
+
+  test('bank sync imports pending for trueLayer when the pref opts in', async () => {
+    const acctId = await prepareSyncedAccount('trueLayer');
+    const pendingKey =
+      `sync-import-pending-${acctId}` satisfies keyof SyncedPrefs;
+    await db.update('preferences', { id: pendingKey, value: 'true' });
+
+    await reconcileTransactions(
+      acctId,
+      [
+        {
+          transactionId: 'tl-booked-1',
+          date: '2020-01-02',
+          payeeName: 'Bakkerij',
+          amount: -41.33,
+          booked: true,
+        },
+        {
+          transactionId: 'tl-pending-1',
+          date: '2020-01-03',
+          payeeName: 'Kroger',
+          amount: -50.0,
+          booked: false,
+        },
+      ],
+      true,
+      false,
+    );
+
+    const transactions = await getAllTransactions();
+    expect(transactions.length).toBe(2);
+  });
+
+  test('bank sync still imports pending by default for goCardless accounts', async () => {
+    const acctId = await prepareSyncedAccount('goCardless');
+
+    await reconcileTransactions(
+      acctId,
+      [
+        {
+          transactionId: 'gc-booked-1',
+          date: '2020-01-02',
+          payeeName: 'Bakkerij',
+          amount: -41.33,
+          booked: true,
+        },
+        {
+          transactionId: 'gc-pending-1',
+          date: '2020-01-03',
+          payeeName: 'Kroger',
+          amount: -50.0,
+          booked: false,
+        },
+      ],
+      true,
+      false,
+    );
+
+    const transactions = await getAllTransactions();
+    expect(transactions.length).toBe(2);
+  });
 });
 
 describe('SimpleFin batch sync', () => {

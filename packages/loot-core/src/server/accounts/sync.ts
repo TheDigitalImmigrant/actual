@@ -18,6 +18,7 @@ import {
   defaultMappings,
   mappingsFromString,
 } from '#server/util/custom-sync-mapping';
+import { getDefaultImportPending } from '#shared/bank-sync';
 import * as monthUtils from '#shared/months';
 import { q } from '#shared/query';
 import {
@@ -524,6 +525,11 @@ async function normalizeTransactions(
 async function normalizeBankSyncTransactions(transactions, acctId) {
   const payeesToCreate = new Map();
 
+  const account = await db.getAccount(acctId);
+  const importPendingDefault = getDefaultImportPending(
+    account?.account_sync_source,
+  );
+
   const [customMappingsRaw, importPending, importNotes] = await Promise.all([
     aqlQuery(
       q('preferences')
@@ -534,7 +540,11 @@ async function normalizeBankSyncTransactions(transactions, acctId) {
       q('preferences')
         .filter({ id: `sync-import-pending-${acctId}` })
         .select('value'),
-    ).then(data => String(data?.data?.[0]?.value ?? 'true') === 'true'),
+    ).then(
+      data =>
+        String(data?.data?.[0]?.value ?? String(importPendingDefault)) ===
+        'true',
+    ),
     aqlQuery(
       q('preferences')
         .filter({ id: `sync-import-notes-${acctId}` })
