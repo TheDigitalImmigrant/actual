@@ -30,7 +30,7 @@ Add the built-in provider section to `MobileBankSyncPage`:
 
 In `SelectLinkedAccountsModal.tsx`'s `initiallyChosenAccounts` memo (lines 178-213): any discovered external account that is not already linked and is not the upgrading target defaults to the `addOnBudgetAccountOption` ("Create new account") instead of empty, and is marked `'linking'` in `initialDraftLinkAccounts`.
 
-- Applies on **both** desktop and mobile — one behavior everywhere; desktop users see a sensible default instead of an empty dropdown and can still change any row.
+- Applies on **both** desktop and mobile, but only in the fresh-connect flow (no `upgradingAccountId`) — in the upgrade flow, preselecting create-new for *other* discovered accounts would create accounts the user didn't ask for. Desktop users see a sensible default instead of an empty dropdown and can still change any row.
 - Per-row control is unchanged: skip an account, mark it off-budget, or link to an existing local account before confirming.
 - The existing "custom starting date/balance" options for new-account rows are untouched.
 

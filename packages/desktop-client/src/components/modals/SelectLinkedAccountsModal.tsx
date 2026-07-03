@@ -61,6 +61,66 @@ function useAddBudgetAccountOptions() {
   return { addOnBudgetAccountOption, addOffBudgetAccountOption };
 }
 
+export function getInitialAccountSelections({
+  localAccounts,
+  externalAccounts,
+  upgradingAccountId,
+  createNewOptionId,
+}: {
+  localAccounts: AccountEntity[];
+  externalAccounts: Array<{ account_id: string }>;
+  upgradingAccountId: string | undefined;
+  createNewOptionId: string;
+}): {
+  initialDraftLinkAccounts: Map<string, 'linking' | 'unlinking'>;
+  initiallyChosenAccounts: Record<string, string>;
+} {
+  const externalAccountIds = new Set(externalAccounts.map(a => a.account_id));
+  const initialDraftLinkAccounts = new Map<string, 'linking' | 'unlinking'>();
+  for (const acc of localAccounts) {
+    if (acc.account_id && externalAccountIds.has(acc.account_id)) {
+      initialDraftLinkAccounts.set(acc.account_id, 'linking');
+    }
+  }
+
+  const initiallyChosenAccounts = Object.fromEntries(
+    localAccounts
+      .filter(acc => acc.account_id)
+      .map(acc => [acc.account_id, acc.id]),
+  );
+
+  if (upgradingAccountId) {
+    const preselectedExternalAccount = externalAccounts.find(
+      account => initiallyChosenAccounts[account.account_id] == null,
+    );
+
+    if (
+      preselectedExternalAccount &&
+      !Object.values(initiallyChosenAccounts).includes(upgradingAccountId)
+    ) {
+      initiallyChosenAccounts[preselectedExternalAccount.account_id] =
+        upgradingAccountId;
+      initialDraftLinkAccounts.set(
+        preselectedExternalAccount.account_id,
+        'linking',
+      );
+    }
+  } else {
+    // Fresh-connect flow: default every unmatched external account to
+    // "Create new account" so linking is one confirmation, not a
+    // dropdown per account. The user can still change or clear any row.
+    for (const externalAccount of externalAccounts) {
+      if (initiallyChosenAccounts[externalAccount.account_id] == null) {
+        initiallyChosenAccounts[externalAccount.account_id] =
+          createNewOptionId;
+        initialDraftLinkAccounts.set(externalAccount.account_id, 'linking');
+      }
+    }
+  }
+
+  return { initialDraftLinkAccounts, initiallyChosenAccounts };
+}
+
 /**
  * Helper to determine if the chosen account option represents creating a new account.
  */
@@ -175,48 +235,24 @@ export function SelectLinkedAccountsModal({
   const dispatch = useDispatch();
   const { data: allAccounts = [] } = useAccounts();
   const localAccounts = allAccounts.filter(a => a.closed === 0);
-  const { initialDraftLinkAccounts, initiallyChosenAccounts } = useMemo(() => {
-    const externalAccountIds = new Set(
-      externalAccounts?.map(a => a.account_id) || [],
-    );
-    const initialDraftLinkAccounts = new Map<string, 'linking' | 'unlinking'>();
-    for (const acc of localAccounts) {
-      if (acc.account_id && externalAccountIds.has(acc.account_id)) {
-        initialDraftLinkAccounts.set(acc.account_id, 'linking');
-      }
-    }
+  const { addOnBudgetAccountOption, addOffBudgetAccountOption } =
+    useAddBudgetAccountOptions();
 
-    const initiallyChosenAccounts = Object.fromEntries(
-      localAccounts
-        .filter(acc => acc.account_id)
-        .map(acc => [acc.account_id, acc.id]),
-    );
-
-    const preselectedExternalAccount =
-      propsWithSortedExternalAccounts.externalAccounts.find(
-        account => initiallyChosenAccounts[account.account_id] == null,
-      );
-
-    if (
-      upgradingAccountId &&
-      preselectedExternalAccount &&
-      !Object.values(initiallyChosenAccounts).includes(upgradingAccountId)
-    ) {
-      initiallyChosenAccounts[preselectedExternalAccount.account_id] =
-        upgradingAccountId;
-      initialDraftLinkAccounts.set(
-        preselectedExternalAccount.account_id,
-        'linking',
-      );
-    }
-
-    return { initialDraftLinkAccounts, initiallyChosenAccounts };
-  }, [
-    localAccounts,
-    externalAccounts,
-    propsWithSortedExternalAccounts.externalAccounts,
-    upgradingAccountId,
-  ]);
+  const { initialDraftLinkAccounts, initiallyChosenAccounts } = useMemo(
+    () =>
+      getInitialAccountSelections({
+        localAccounts,
+        externalAccounts: propsWithSortedExternalAccounts.externalAccounts,
+        upgradingAccountId,
+        createNewOptionId: addOnBudgetAccountOption.id,
+      }),
+    [
+      localAccounts,
+      propsWithSortedExternalAccounts.externalAccounts,
+      upgradingAccountId,
+      addOnBudgetAccountOption.id,
+    ],
+  );
 
   const [draftLinkAccounts, setDraftLinkAccounts] = useState<
     Map<string, 'linking' | 'unlinking'>
@@ -227,8 +263,6 @@ export function SelectLinkedAccountsModal({
   const [customStartingDates, setCustomStartingDates] = useState<
     Record<string, StartingBalanceInfo>
   >({});
-  const { addOnBudgetAccountOption, addOffBudgetAccountOption } =
-    useAddBudgetAccountOptions();
 
   const linkAccount = useLinkAccountMutation();
   const unlinkAccount = useUnlinkAccountMutation();
