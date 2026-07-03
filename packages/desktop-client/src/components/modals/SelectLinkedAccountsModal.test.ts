@@ -4,10 +4,7 @@ import { getInitialAccountSelections } from './SelectLinkedAccountsModal';
 
 const CREATE_NEW = 'new-on';
 
-function makeLocalAccount(
-  id: string,
-  accountId: string | null,
-): AccountEntity {
+function makeLocalAccount(id: string, accountId: string | null): AccountEntity {
   return { id, account_id: accountId, closed: 0 } as AccountEntity;
 }
 

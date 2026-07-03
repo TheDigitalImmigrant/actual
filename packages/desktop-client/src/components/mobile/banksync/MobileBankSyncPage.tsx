@@ -7,14 +7,14 @@ import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
 import type { AccountEntity } from '@actual-app/core/types/models';
 
-import { BuiltInProviders } from '#components/banksync/BuiltInProviders';
-import { useBuiltInBankSyncProviders } from '#components/banksync/useBuiltInBankSyncProviders';
 import {
   getGroupedBankSyncEntries,
   getSyncSourceReadable,
   groupBankSyncAccounts,
 } from '#components/banksync/bankSyncUtils';
 import type { GroupedBankSyncAccounts } from '#components/banksync/bankSyncUtils';
+import { BuiltInProviders } from '#components/banksync/BuiltInProviders';
+import { useBuiltInBankSyncProviders } from '#components/banksync/useBuiltInBankSyncProviders';
 import { Search } from '#components/common/Search';
 import { MobilePageHeader, Page } from '#components/Page';
 import { useAccounts } from '#hooks/useAccounts';
@@ -158,8 +158,8 @@ export function MobileBankSyncPage() {
             }}
           >
             <Trans>
-              No accounts are linked yet. Connect a bank above and your
-              accounts will be created automatically.
+              No accounts are linked yet. Connect a bank above and your accounts
+              will be created automatically.
             </Trans>
           </Text>
         </View>

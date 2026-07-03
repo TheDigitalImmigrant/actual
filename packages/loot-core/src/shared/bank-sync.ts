@@ -1,4 +1,4 @@
-import type { BankSyncProviders } from '../types/models/bank-sync';
+import type { BankSyncProviders } from '#types/models/bank-sync';
 
 /**
  * Whether the `sync-import-pending-<accountId>` preference should be treated

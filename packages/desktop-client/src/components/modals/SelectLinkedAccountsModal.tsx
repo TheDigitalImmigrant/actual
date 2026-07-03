@@ -111,8 +111,7 @@ export function getInitialAccountSelections({
     // dropdown per account. The user can still change or clear any row.
     for (const externalAccount of externalAccounts) {
       if (initiallyChosenAccounts[externalAccount.account_id] == null) {
-        initiallyChosenAccounts[externalAccount.account_id] =
-          createNewOptionId;
+        initiallyChosenAccounts[externalAccount.account_id] = createNewOptionId;
         initialDraftLinkAccounts.set(externalAccount.account_id, 'linking');
       }
     }
